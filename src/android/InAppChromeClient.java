@@ -36,6 +36,10 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.GeolocationPermissions.Callback;
 import android.webkit.PermissionRequest;
+import android.content.Intent;
+import android.content.ActivityNotFoundException;
+import android.net.Uri;
+import android.webkit.ValueCallback;
 
 public class InAppChromeClient extends WebChromeClient {
 
