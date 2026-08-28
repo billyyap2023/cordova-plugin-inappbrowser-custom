@@ -1,22 +1,3 @@
-/**
-    Licensed to the Apache Software Foundation (ASF) under one
-    or more contributor license agreements.  See the NOTICE file
-    distributed with this work for additional information
-    regarding copyright ownership.  The ASF licenses this file
-    to you under the Apache License, Version 2.0 (the
-    "License"); you may not use this file except in compliance
-    with the License.  You may obtain a copy of the License at
-
-        http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing,
-    software distributed under the License is distributed on an
-    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-    KIND, either express or implied.  See the License for the
-    specific language governing permissions and limitations
-    under the License.
-*/
-
 package org.apache.cordova.inappbrowser;
 
 import org.apache.cordova.CordovaWebView;
@@ -48,6 +29,9 @@ public class InAppChromeClient extends WebChromeClient {
     private CordovaWebView webView;
     private String LOG_TAG = "InAppChromeClient";
     private long MAX_QUOTA = 100 * 1024 * 1024;
+    
+    // Hold reference to callback so file picker doesn't cancel automatically
+    public ValueCallback<Uri[]> filePathCallback;
 
     public InAppChromeClient(CordovaWebView webView) {
         super();
@@ -60,37 +44,26 @@ public class InAppChromeClient extends WebChromeClient {
         }
     }
 
-    /**
-     * Handle database quota exceeded notification.
-     */
     @Override
     public void onExceededDatabaseQuota(String url, String databaseIdentifier, long currentQuota, long estimatedSize,
-            long totalUsedQuota, WebStorage.QuotaUpdater quotaUpdater)
-    {
-        LOG.d(LOG_TAG, "onExceededDatabaseQuota estimatedSize: %d  currentQuota: %d  totalUsedQuota: %d", estimatedSize, currentQuota, totalUsedQuota);
+            long totalUsedQuota, WebStorage.QuotaUpdater quotaUpdater) {
         quotaUpdater.updateQuota(MAX_QUOTA);
     }
 
-    /**
-     * Instructs the client to show a prompt to ask the user to set the Geolocation permission state for the specified origin.
-     */
     @Override
     public void onGeolocationPermissionsShowPrompt(String origin, Callback callback) {
         super.onGeolocationPermissionsShowPrompt(origin, callback);
         callback.invoke(origin, true, false);
     }
 
-    /**
-     * Tell the client to display a prompt dialog to the user.
-     */
     @Override
     public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
         if (defaultValue != null && defaultValue.startsWith("gap")) {
-            if(defaultValue.startsWith("gap-iab://")) {
+            if (defaultValue.startsWith("gap-iab://")) {
                 PluginResult scriptResult;
                 String scriptCallbackId = defaultValue.substring(10);
                 if (scriptCallbackId.matches("^InAppBrowser[0-9]{1,10}$")) {
-                    if(message == null || message.length() == 0) {
+                    if (message == null || message.length() == 0) {
                         scriptResult = new PluginResult(PluginResult.Status.OK, new JSONArray());
                     } else {
                         try {
@@ -102,15 +75,11 @@ public class InAppChromeClient extends WebChromeClient {
                     this.webView.sendPluginResult(scriptResult, scriptCallbackId);
                     result.confirm("");
                     return true;
-                }
-                else {
-                    LOG.w(LOG_TAG, "InAppBrowser callback called with invalid callbackId : "+ scriptCallbackId);
+                } else {
                     result.cancel();
                     return true;
                 }
-            }
-            else {
-                LOG.w(LOG_TAG, "InAppBrowser does not support Cordova API calls: " + url + " " + defaultValue); 
+            } else {
                 result.cancel();
                 return true;
             }
@@ -118,26 +87,22 @@ public class InAppChromeClient extends WebChromeClient {
         return false;
     }
 
-    /**
-     * Route links configured for new window back to current webview.
-     */
     @Override
     public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
         WebView inAppWebView = view;
-        final WebViewClient webViewClient =
-                new WebViewClient() {
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                        inAppWebView.loadUrl(request.getUrl().toString());
-                        return true;
-                    }
+        final WebViewClient webViewClient = new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                inAppWebView.loadUrl(request.getUrl().toString());
+                return true;
+            }
 
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                        inAppWebView.loadUrl(url);
-                        return true;
-                    }
-                };
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                inAppWebView.loadUrl(url);
+                return true;
+            }
+        };
 
         final WebView newWebView = new WebView(view.getContext());
         newWebView.setWebViewClient(webViewClient);
@@ -149,26 +114,26 @@ public class InAppChromeClient extends WebChromeClient {
         return true;
     }
     
-    // For Android 5.0+ File Chooser support with EXTRA_MIME_TYPES
-   @Override
+    @Override
     public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
-        LOG.d(LOG_TAG, "File chooser requested");
-    
-        Intent intent = fileChooserParams.createIntent();
+        // Cancel existing callback if left hanging
+        if (this.filePathCallback != null) {
+            this.filePathCallback.onReceiveValue(null);
+        }
+        this.filePathCallback = filePathCallback;
+
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+
         String[] acceptTypes = fileChooserParams.getAcceptTypes();
-    
+        ArrayList<String> mimeTypesList = new ArrayList<>();
+
         if (acceptTypes != null && acceptTypes.length > 0) {
-            ArrayList<String> mimeTypesList = new ArrayList<>();
-    
             for (String type : acceptTypes) {
                 if (type == null || type.trim().isEmpty()) continue;
-                
-                // Clean comma-separated strings inside individual array elements
                 String[] splitTypes = type.split(",");
                 for (String cleanedType : splitTypes) {
                     cleanedType = cleanedType.trim();
-    
-                    // Convert file extensions (e.g. .pdf) to actual MIME types (application/pdf)
                     if (cleanedType.startsWith(".")) {
                         String extension = cleanedType.substring(1);
                         String mimeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase());
@@ -180,19 +145,27 @@ public class InAppChromeClient extends WebChromeClient {
                     }
                 }
             }
-    
-            // Attach sanitized MIME types to intent
-            if (!mimeTypesList.isEmpty()) {
-                intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesList.toArray(new String[0]));
-            }
         }
-    
+
+        if (!mimeTypesList.isEmpty()) {
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesList.toArray(new String[0]));
+        } else {
+            intent.setType("*/*");
+        }
+
+        if (fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
+
         try {
-            webView.getContext().startActivity(Intent.createChooser(intent, "Select File"));
-            filePathCallback.onReceiveValue(null);
+            Intent chooserIntent = Intent.createChooser(intent, "Select File");
+            webView.getContext().startActivity(chooserIntent);
         } catch (ActivityNotFoundException e) {
-            filePathCallback.onReceiveValue(null);
+            if (this.filePathCallback != null) {
+                this.filePathCallback.onReceiveValue(null);
+                this.filePathCallback = null;
+            }
             return false;
         }
         return true;
