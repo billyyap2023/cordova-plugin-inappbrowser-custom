@@ -40,6 +40,8 @@ import android.content.Intent;
 import android.content.ActivityNotFoundException;
 import android.net.Uri;
 import android.webkit.ValueCallback;
+import android.webkit.MimeTypeMap;
+import java.util.ArrayList;
 
 public class InAppChromeClient extends WebChromeClient {
 
@@ -148,20 +150,45 @@ public class InAppChromeClient extends WebChromeClient {
     }
     
     // For Android 5.0+ File Chooser support with EXTRA_MIME_TYPES
-    @Override
+   @Override
     public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
         LOG.d(LOG_TAG, "File chooser requested");
-
+    
         Intent intent = fileChooserParams.createIntent();
         String[] acceptTypes = fileChooserParams.getAcceptTypes();
-
-        if (acceptTypes != null && acceptTypes.length > 0 && !acceptTypes[0].trim().isEmpty()) {
-            intent.setType("*/*");
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, acceptTypes);
+    
+        if (acceptTypes != null && acceptTypes.length > 0) {
+            ArrayList<String> mimeTypesList = new ArrayList<>();
+    
+            for (String type : acceptTypes) {
+                if (type == null || type.trim().isEmpty()) continue;
+                
+                // Clean comma-separated strings inside individual array elements
+                String[] splitTypes = type.split(",");
+                for (String cleanedType : splitTypes) {
+                    cleanedType = cleanedType.trim();
+    
+                    // Convert file extensions (e.g. .pdf) to actual MIME types (application/pdf)
+                    if (cleanedType.startsWith(".")) {
+                        String extension = cleanedType.substring(1);
+                        String mimeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase());
+                        if (mimeFromExt != null && !mimeTypesList.contains(mimeFromExt)) {
+                            mimeTypesList.add(mimeFromExt);
+                        }
+                    } else if (!mimeTypesList.contains(cleanedType)) {
+                        mimeTypesList.add(cleanedType);
+                    }
+                }
+            }
+    
+            // Attach sanitized MIME types to intent
+            if (!mimeTypesList.isEmpty()) {
+                intent.setType("*/*");
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesList.toArray(new String[0]));
+            }
         }
-
+    
         try {
-            // Retrieve context from WebView to launch intent
             webView.getContext().startActivity(Intent.createChooser(intent, "Select File"));
             filePathCallback.onReceiveValue(null);
         } catch (ActivityNotFoundException e) {
