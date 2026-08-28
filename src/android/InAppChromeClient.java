@@ -6,7 +6,6 @@ import org.apache.cordova.PluginResult;
 import org.json.JSONArray;
 import org.json.JSONException;
 
-import android.annotation.TargetApi;
 import android.os.Build;
 import android.os.Message;
 import android.webkit.JsPromptResult;
@@ -30,8 +29,8 @@ public class InAppChromeClient extends WebChromeClient {
     private String LOG_TAG = "InAppChromeClient";
     private long MAX_QUOTA = 100 * 1024 * 1024;
     
-    // Hold reference to callback so file picker doesn't cancel automatically
-    public ValueCallback<Uri[]> filePathCallback;
+    // Core Reference for File Result
+    public ValueCallback<Uri[]> mFilePathCallback = null;
 
     public InAppChromeClient(CordovaWebView webView) {
         super();
@@ -115,59 +114,66 @@ public class InAppChromeClient extends WebChromeClient {
     }
     
     @Override
-   public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
-    // Keep reference so webview doesn't release callback
-    this.filePathCallback = filePathCallback;
+    public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+        LOG.d(LOG_TAG, "--- ON SHOW FILE CHOOSER TRIGGERED ---");
 
-    // Use ACTION_OPEN_DOCUMENT instead of ACTION_GET_CONTENT for Android 10+ document visibility
-    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-    intent.addCategory(Intent.CATEGORY_OPENABLE);
+        if (mFilePathCallback != null) {
+            mFilePathCallback.onReceiveValue(null);
+        }
+        mFilePathCallback = filePathCallback;
 
-    String[] acceptTypes = fileChooserParams.getAcceptTypes();
-    ArrayList<String> mimeTypesList = new ArrayList<>();
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
 
-    if (acceptTypes != null && acceptTypes.length > 0) {
-        for (String type : acceptTypes) {
-            if (type == null || type.trim().isEmpty()) continue;
-            String[] splitTypes = type.split(",");
-            for (String cleanedType : splitTypes) {
-                cleanedType = cleanedType.trim();
-                if (cleanedType.startsWith(".")) {
-                    String extension = cleanedType.substring(1);
-                    String mimeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase());
-                    if (mimeFromExt != null && !mimeTypesList.contains(mimeFromExt)) {
-                        mimeTypesList.add(mimeFromExt);
+        String[] acceptTypes = fileChooserParams.getAcceptTypes();
+        ArrayList<String> mimeTypesList = new ArrayList<>();
+
+        if (acceptTypes != null && acceptTypes.length > 0) {
+            for (String type : acceptTypes) {
+                if (type == null || type.trim().isEmpty()) continue;
+                String[] splitTypes = type.split(",");
+                for (String cleanedType : splitTypes) {
+                    cleanedType = cleanedType.trim();
+                    if (cleanedType.startsWith(".")) {
+                        String extension = cleanedType.substring(1);
+                        String mimeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase());
+                        if (mimeFromExt != null && !mimeTypesList.contains(mimeFromExt)) {
+                            mimeTypesList.add(mimeFromExt);
+                        }
+                    } else if (!mimeTypesList.contains(cleanedType)) {
+                        mimeTypesList.add(cleanedType);
                     }
-                } else if (!mimeTypesList.contains(cleanedType)) {
-                    mimeTypesList.add(cleanedType);
                 }
             }
         }
-    }
 
-    if (!mimeTypesList.isEmpty()) {
-        intent.setType("*/*");
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesList.toArray(new String[0]));
-    } else {
-        intent.setType("*/*");
-    }
-
-    if (fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
-        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-    }
-
-    try {
-        Intent chooserIntent = Intent.createChooser(intent, "Select File");
-        // Clear flag to avoid crash on new task context
-        chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        webView.getContext().startActivity(chooserIntent);
-    } catch (ActivityNotFoundException e) {
-        if (this.filePathCallback != null) {
-            this.filePathCallback.onReceiveValue(null);
-            this.filePathCallback = null;
+        if (!mimeTypesList.isEmpty()) {
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesList.toArray(new String[0]));
+        } else {
+            intent.setType("*/*");
         }
-        return false;
+
+        if (fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        }
+
+        try {
+            Intent chooserIntent = Intent.createChooser(intent, "Select Files");
+            if (webView.getContext() instanceof android.app.Activity) {
+                ((android.app.Activity) webView.getContext()).startActivityForResult(chooserIntent, 1);
+            } else {
+                chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                webView.getContext().startActivity(chooserIntent);
+            }
+        } catch (ActivityNotFoundException e) {
+            LOG.e(LOG_TAG, "No activity found to handle file chooser intent", e);
+            if (mFilePathCallback != null) {
+                mFilePathCallback.onReceiveValue(null);
+                mFilePathCallback = null;
+            }
+            return false;
+        }
+        return true;
     }
-    return true;
-}
 }
