@@ -115,59 +115,59 @@ public class InAppChromeClient extends WebChromeClient {
     }
     
     @Override
-    public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
-        // Cancel existing callback if left hanging
-        if (this.filePathCallback != null) {
-            this.filePathCallback.onReceiveValue(null);
-        }
-        this.filePathCallback = filePathCallback;
+   public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+    // Keep reference so webview doesn't release callback
+    this.filePathCallback = filePathCallback;
 
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
+    // Use ACTION_OPEN_DOCUMENT instead of ACTION_GET_CONTENT for Android 10+ document visibility
+    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+    intent.addCategory(Intent.CATEGORY_OPENABLE);
 
-        String[] acceptTypes = fileChooserParams.getAcceptTypes();
-        ArrayList<String> mimeTypesList = new ArrayList<>();
+    String[] acceptTypes = fileChooserParams.getAcceptTypes();
+    ArrayList<String> mimeTypesList = new ArrayList<>();
 
-        if (acceptTypes != null && acceptTypes.length > 0) {
-            for (String type : acceptTypes) {
-                if (type == null || type.trim().isEmpty()) continue;
-                String[] splitTypes = type.split(",");
-                for (String cleanedType : splitTypes) {
-                    cleanedType = cleanedType.trim();
-                    if (cleanedType.startsWith(".")) {
-                        String extension = cleanedType.substring(1);
-                        String mimeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase());
-                        if (mimeFromExt != null && !mimeTypesList.contains(mimeFromExt)) {
-                            mimeTypesList.add(mimeFromExt);
-                        }
-                    } else if (!mimeTypesList.contains(cleanedType)) {
-                        mimeTypesList.add(cleanedType);
+    if (acceptTypes != null && acceptTypes.length > 0) {
+        for (String type : acceptTypes) {
+            if (type == null || type.trim().isEmpty()) continue;
+            String[] splitTypes = type.split(",");
+            for (String cleanedType : splitTypes) {
+                cleanedType = cleanedType.trim();
+                if (cleanedType.startsWith(".")) {
+                    String extension = cleanedType.substring(1);
+                    String mimeFromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.toLowerCase());
+                    if (mimeFromExt != null && !mimeTypesList.contains(mimeFromExt)) {
+                        mimeTypesList.add(mimeFromExt);
                     }
+                } else if (!mimeTypesList.contains(cleanedType)) {
+                    mimeTypesList.add(cleanedType);
                 }
             }
         }
-
-        if (!mimeTypesList.isEmpty()) {
-            intent.setType("*/*");
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesList.toArray(new String[0]));
-        } else {
-            intent.setType("*/*");
-        }
-
-        if (fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
-            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        }
-
-        try {
-            Intent chooserIntent = Intent.createChooser(intent, "Select File");
-            webView.getContext().startActivity(chooserIntent);
-        } catch (ActivityNotFoundException e) {
-            if (this.filePathCallback != null) {
-                this.filePathCallback.onReceiveValue(null);
-                this.filePathCallback = null;
-            }
-            return false;
-        }
-        return true;
     }
+
+    if (!mimeTypesList.isEmpty()) {
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypesList.toArray(new String[0]));
+    } else {
+        intent.setType("*/*");
+    }
+
+    if (fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
+        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+    }
+
+    try {
+        Intent chooserIntent = Intent.createChooser(intent, "Select File");
+        // Clear flag to avoid crash on new task context
+        chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        webView.getContext().startActivity(chooserIntent);
+    } catch (ActivityNotFoundException e) {
+        if (this.filePathCallback != null) {
+            this.filePathCallback.onReceiveValue(null);
+            this.filePathCallback = null;
+        }
+        return false;
+    }
+    return true;
+}
 }
