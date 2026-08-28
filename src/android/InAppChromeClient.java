@@ -60,13 +60,6 @@ public class InAppChromeClient extends WebChromeClient {
 
     /**
      * Handle database quota exceeded notification.
-     *
-     * @param url
-     * @param databaseIdentifier
-     * @param currentQuota
-     * @param estimatedSize
-     * @param totalUsedQuota
-     * @param quotaUpdater
      */
     @Override
     public void onExceededDatabaseQuota(String url, String databaseIdentifier, long currentQuota, long estimatedSize,
@@ -78,9 +71,6 @@ public class InAppChromeClient extends WebChromeClient {
 
     /**
      * Instructs the client to show a prompt to ask the user to set the Geolocation permission state for the specified origin.
-     *
-     * @param origin
-     * @param callback
      */
     @Override
     public void onGeolocationPermissionsShowPrompt(String origin, Callback callback) {
@@ -90,33 +80,9 @@ public class InAppChromeClient extends WebChromeClient {
 
     /**
      * Tell the client to display a prompt dialog to the user.
-     * If the client returns true, WebView will assume that the client will
-     * handle the prompt dialog and call the appropriate JsPromptResult method.
-     *
-     * The prompt bridge provided for the InAppBrowser is capable of executing any
-     * oustanding callback belonging to the InAppBrowser plugin. Care has been
-     * taken that other callbacks cannot be triggered, and that no other code
-     * execution is possible.
-     *
-     * To trigger the bridge, the prompt default value should be of the form:
-     *
-     * gap-iab://<callbackId>
-     *
-     * where <callbackId> is the string id of the callback to trigger (something
-     * like "InAppBrowser0123456789")
-     *
-     * If present, the prompt message is expected to be a JSON-encoded value to
-     * pass to the callback. A JSON_EXCEPTION is returned if the JSON is invalid.
-     *
-     * @param view
-     * @param url
-     * @param message
-     * @param defaultValue
-     * @param result
      */
     @Override
     public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
-        // See if the prompt string uses the 'gap-iab' protocol. If so, the remainder should be the id of a callback to execute.
         if (defaultValue != null && defaultValue.startsWith("gap")) {
             if(defaultValue.startsWith("gap-iab://")) {
                 PluginResult scriptResult;
@@ -136,14 +102,12 @@ public class InAppChromeClient extends WebChromeClient {
                     return true;
                 }
                 else {
-                    // Anything else that doesn't look like InAppBrowser0123456789 should end up here
                     LOG.w(LOG_TAG, "InAppBrowser callback called with invalid callbackId : "+ scriptCallbackId);
                     result.cancel();
                     return true;
                 }
             }
             else {
-                // Anything else with a gap: prefix should get this message
                 LOG.w(LOG_TAG, "InAppBrowser does not support Cordova API calls: " + url + " " + defaultValue); 
                 result.cancel();
                 return true;
@@ -153,17 +117,7 @@ public class InAppChromeClient extends WebChromeClient {
     }
 
     /**
-     * The InAppWebBrowser WebView is configured to MultipleWindow mode to mitigate a security
-     * bug found in Chromium prior to version 83.0.4103.106.
-     * See https://bugs.chromium.org/p/chromium/issues/detail?id=1083819
-     *
-     * Valid Urls set to open in new window will be routed back to load in the original WebView.
-     *
-     * @param view
-     * @param isDialog
-     * @param isUserGesture
-     * @param resultMsg
-     * @return
+     * Route links configured for new window back to current webview.
      */
     @Override
     public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
@@ -192,29 +146,28 @@ public class InAppChromeClient extends WebChromeClient {
 
         return true;
     }
-	
-	@Override
-	public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
-    if (mFilePathCallback != null) {
-        mFilePathCallback.onReceiveValue(null);
-    }
-    mFilePathCallback = filePathCallback;
+    
+    // For Android 5.0+ File Chooser support with EXTRA_MIME_TYPES
+    @Override
+    public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+        LOG.d(LOG_TAG, "File chooser requested");
 
-    Intent intent = fileChooserParams.createIntent();
-    String[] acceptTypes = fileChooserParams.getAcceptTypes();
+        Intent intent = fileChooserParams.createIntent();
+        String[] acceptTypes = fileChooserParams.getAcceptTypes();
 
-    // Fix: Pass all accept types to EXTRA_MIME_TYPES while setting base type to wildcard
-    if (acceptTypes != null && acceptTypes.length > 0 && !acceptTypes[0].trim().isEmpty()) {
-        intent.setType("*/*");
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, acceptTypes);
-    }
+        if (acceptTypes != null && acceptTypes.length > 0 && !acceptTypes[0].trim().isEmpty()) {
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, acceptTypes);
+        }
 
-    try {
-        this.cordova.startActivityForResult(this, intent, FILECHOOSER_REQUESTCODE);
-    } catch (ActivityNotFoundException e) {
-        mFilePathCallback = null;
-        return false;
+        try {
+            // Retrieve context from WebView to launch intent
+            webView.getContext().startActivity(Intent.createChooser(intent, "Select File"));
+            filePathCallback.onReceiveValue(null);
+        } catch (ActivityNotFoundException e) {
+            filePathCallback.onReceiveValue(null);
+            return false;
+        }
+        return true;
     }
-    return true;
-	}
 }
